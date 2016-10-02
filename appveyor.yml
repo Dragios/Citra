@@ -128,6 +128,8 @@ after_build:
           }
           New-Item -ItemType Directory -Force -Path "$SQUIRREL_BIN_DIR/platforms" | Out-Null
           Copy-Item -path "C:/msys64/mingw64/share/qt5/plugins/platforms/qwindows.dll" -force -destination "$SQUIRREL_BIN_DIR/platforms"
+          Copy-Item -path "$CMAKE_SOURCE_DIR/license.txt" -destination "$SQUIRREL_BIN_DIR"
+          Copy-Item -path "$CMAKE_SOURCE_DIR/README.md" -destination "$SQUIRREL_BIN_DIR"
 
           # build the nuget file
           $arguments = "pack", "$CMAKE_BINARY_DIR/citra.nuspec", "-BasePath", "$SQUIRREL_BUILD_DIR", "-OutputDirectory", "$SQUIRREL_BUILD_DIR"
@@ -157,9 +159,6 @@ on_success:
     # copying the needed QT Dlls is now done post build. See the CMakeLists.txt file in the citra-qt folder
   - ps: >
         if (!"$env:APPVEYOR_PULL_REQUEST_TITLE" -and ("$env:APPVEYOR_REPO_BRANCH" -eq "master")) {
-            $GITDATE = $(git show -s --date=short --format='%ad') -replace "-",""
-            $GITREV = $(git show -s --format='%h')
-
             $GITDATE = $(git show -s --date=short --format='%ad') -replace "-",""
             $GITREV = $(git show -s --format='%h')
             # Where are these spaces coming from? Regardless, let's remove them
