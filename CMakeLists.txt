@@ -41,8 +41,6 @@ option(CITRA_USE_BUNDLED_SDL2 "Download bundled SDL2 binaries" OFF)
 option(ENABLE_QT "Enable the Qt frontend" ON)
 option(CITRA_USE_BUNDLED_QT "Download bundled Qt binaries" OFF)
 
-option(WIN_CREATE_INSTALLER "Create a windows installer with Squirrel" OFF)
-
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git/hooks/pre-commit)
     message(STATUS "Copying pre-commit hook")
     file(COPY hooks/pre-commit
@@ -269,7 +267,7 @@ add_subdirectory(externals/glad)
 include_directories(externals/microprofile)
 include_directories(externals/nihstro/include)
 
-if (WIN_CREATE_INSTALLER OR MSVC)
+if (MSVC)
     add_subdirectory(externals/getopt)
 endif()
 
