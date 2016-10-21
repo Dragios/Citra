@@ -32,3 +32,11 @@ cache:
 install: ./.travis-deps.sh
 script: ./.travis-build.sh
 after_success: ./.travis-upload.sh
+
+deploy:
+  provider: releases
+  api_key: "GITHUB OAUTH TOKEN"
+  file: "FILE TO UPLOAD"
+  skip_cleanup: true
+  on:
+    branch: master
