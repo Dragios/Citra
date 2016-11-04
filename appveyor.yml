@@ -114,7 +114,7 @@ after_build:
         }
 
 artifacts:
-  - path: citra-msvc-amd64-$(APPVEYOR_REPO_COMMIT).zip
+  - path: citra-msvc-amd64-$(SHORT_COMMIT).zip
     name: msvcbuild
-  - path: citra-mingw-amd64-$(APPVEYOR_REPO_COMMIT).zip
+  - path: citra-mingw-amd64-$(SHORT_COMMIT).zip
     name: mingwbuild
