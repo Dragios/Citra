@@ -110,7 +110,7 @@ after_build:
         } else {
           # Package a zip for msvc build. Include pdb symbols now that bandwidth isn't a large issue on github releases.
           $BUILD_NAME = "citra-msvc-amd64-$env:APPVEYOR_REPO_COMMIT.zip"
-          7z a -tzip $BUILD_NAME .\build\bin\release\* .\license.txt .\README.md
+          7z a -tzip $BUILD_NAME .\msvcbuild\bin\release\* .\license.txt .\README.md
         }
 
 artifacts:
