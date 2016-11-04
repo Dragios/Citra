@@ -79,6 +79,8 @@ test_script:
 
 after_build:
   - ps: |
+        $SHORT_COMMIT = "$env:APPVEYOR_REPO_COMMIT".substring(0,8)
+        $BUILD_NAME = "citra-$env:BUILD_TYPE-amd64-$SHORT_COMMIT.zip"
         if ($env:BUILD_TYPE -eq 'mingw') {
           # Package a zip for mingw build
           $CMAKE_SOURCE_DIR = "$env:APPVEYOR_BUILD_FOLDER"
@@ -105,11 +107,9 @@ after_build:
           Copy-Item -path "$CMAKE_SOURCE_DIR/README.md" -destination "$SQUIRREL_BIN_DIR"
 
           # zip and copy the zip to the root dir so it'll be easier to setup artifcats
-          $BUILD_NAME = "citra-mingw-amd64-$env:APPVEYOR_REPO_COMMIT.zip"
-          7z a -tzip $BUILD_NAME "$SQUIRREL_BIN_DIR/*" .\license.txt .\README.md
+          7z a -tzip $BUILD_NAME "$SQUIRREL_BIN_DIR/*"
         } else {
           # Package a zip for msvc build. Include pdb symbols now that bandwidth isn't a large issue on github releases.
-          $BUILD_NAME = "citra-msvc-amd64-$env:APPVEYOR_REPO_COMMIT.zip"
           7z a -tzip $BUILD_NAME .\msvcbuild\bin\release\* .\license.txt .\README.md
         }
 
