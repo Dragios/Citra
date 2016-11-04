@@ -7,7 +7,7 @@ deploy:
   - provider: GitHub
     release: nightly-$(appveyor_build_number)
     description: |
-      If you are unsure what to download, download the latest citra-mingw-amd64 zip, extract it and run citra-qt.exe 
+      If you are unsure what to download, download the latest citra-mingw-amd64 zip, extract it and run citra-qt.exe
 
       Nightly Build number $(appveyor_build_number)
     auth_token:
@@ -91,7 +91,7 @@ after_build:
           $SQUIRREL_RELEASE_DIR = "$SQUIRREL_DIR/Release"
           $SQUIRREL_BUILD_DIR = "$SQUIRREL_DIR/Build"
           $SQUIRREL_BIN_DIR = "$SQUIRREL_BUILD_DIR/lib/net45"
-          
+
           # make the path we'll copy the output to post build
           New-Item -ItemType Directory -Force -Path $SQUIRREL_BIN_DIR | Out-Null
           New-Item -ItemType Directory -Force -Path $SQUIRREL_BUILD_DIR | Out-Null
