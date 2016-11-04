@@ -105,14 +105,12 @@ after_build:
           Copy-Item -path "$CMAKE_SOURCE_DIR/README.md" -destination "$SQUIRREL_BIN_DIR"
 
           # zip and copy the zip to the root dir so it'll be easier to setup artifcats
-          $BUILD_NAME = "citra-mingw-amd64-$(APPVEYOR_REPO_COMMIT).zip"
-          7z a -tzip $BUILD_NAME "$SQUIRREL_BIN_DIR/*"
-          Copy-Item -path $BUILD_NAME $CMAKE_SOURCE_DIR
+          $BUILD_NAME = "citra-mingw-amd64-$env:APPVEYOR_REPO_COMMIT.zip"
+          7z a -tzip $BUILD_NAME "$SQUIRREL_BIN_DIR/*" .\license.txt .\README.md
         } else {
           # Package a zip for msvc build. Include pdb symbols now that bandwidth isn't a large issue on github releases.
-          $BUILD_NAME = "citra-msvc-amd64-$(APPVEYOR_REPO_COMMIT).zip"
+          $BUILD_NAME = "citra-msvc-amd64-$env:APPVEYOR_REPO_COMMIT.zip"
           7z a -tzip $BUILD_NAME .\build\bin\release\* .\license.txt .\README.md
-          Copy-Item -path $BUILD_NAME $CMAKE_SOURCE_DIR
         }
 
 artifacts:
