@@ -7,6 +7,7 @@
 #include <future>
 #include <memory>
 #include <vector>
+#include "common/bit_set.h"
 #include "common/logging/log.h"
 #include "core/core_timing.h"
 #include "core/frontend/camera/factory.h"
@@ -120,24 +121,6 @@ const ResultCode ERROR_INVALID_ENUM_VALUE(ErrorDescription::InvalidEnumValue, Er
 const ResultCode ERROR_OUT_OF_RANGE(ErrorDescription::OutOfRange, ErrorModule::CAM,
                                     ErrorSummary::InvalidArgument, ErrorLevel::Usage);
 
-// transforms a "*_select" parameter to an ID list
-std::vector<int> BitSetToIDs(u32 bit_set) {
-    static const std::array<std::vector<int>, 8> SET_TO_ID{{
-        {}, {0}, {1}, {0, 1}, {2}, {0, 2}, {1, 2}, {0, 1, 2},
-    }};
-    return SET_TO_ID[bit_set];
-}
-
-// verifies a "*_select" parameter is in a valid range
-bool VerifyBitSet(u32 bit_set, unsigned count) {
-    return bit_set < (1 << count);
-}
-
-// verifies a "*_select" parameter represents an unique ID
-bool VerifyBitSetUnique(u32 bit_set, unsigned count) {
-    return bit_set < (1 << count) && bit_set != 0 && !(bit_set & (bit_set - 1));
-}
-
 void CompletionEventCallBack(u64 port_id, int) {
     auto& port = ports[port_id];
     const auto& camera = cameras[port.camera_id];
@@ -240,15 +223,34 @@ static void ActivatePort(int port_id, int camera_id) {
     ports[port_id].camera_id = camera_id;
 }
 
+template <int max_index>
+class CommandParamBitSet : public BitSet8 {
+public:
+    explicit CommandParamBitSet(u32 command_param)
+        : BitSet8(static_cast<u8>(command_param & 0xFF)) {}
+
+    bool IsValid() const {
+        return m_val < (1 << max_index);
+    }
+
+    bool IsSingle() const {
+        return IsValid() && Count() == 1;
+    }
+};
+
+using PortSet = CommandParamBitSet<2>;
+using ContextSet = CommandParamBitSet<2>;
+using CameraSet = CommandParamBitSet<3>;
+
 } // namespace
 
 void StartCapture(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSet(port_select, 2)) {
-        for (int i : BitSetToIDs(port_select)) {
+    if (port_select.IsValid()) {
+        for (int i : port_select) {
             if (!ports[i].is_busy) {
                 if (!ports[i].is_active) {
                     // This doesn't return an error, but seems to put the camera in an undefined
@@ -268,22 +270,22 @@ void StartCapture(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x1, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select.m_val);
 }
 
 void StopCapture(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSet(port_select, 2)) {
-        for (int i : BitSetToIDs(port_select)) {
+    if (port_select.IsValid()) {
+        for (int i : port_select) {
             if (ports[i].is_busy) {
                 CancelReceiving(i);
                 cameras[ports[i].camera_id].impl->StopCapture();
@@ -294,61 +296,61 @@ void StopCapture(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x2, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select.m_val);
 }
 
 void IsBusy(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSet(port_select, 2)) {
+    if (port_select.IsValid()) {
         bool is_busy = true;
         // Note: the behaviour on no or both ports selected are verified against real 3DS.
-        for (int i : BitSetToIDs(port_select)) {
+        for (int i : port_select) {
             is_busy &= ports[i].is_busy;
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
         cmd_buff[2] = is_busy ? 1 : 0;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x3, 2, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select.m_val);
 }
 
 void ClearBuffer(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
     cmd_buff[0] = IPC::MakeHeader(0x4, 1, 0);
     cmd_buff[1] = RESULT_SUCCESS.raw;
 
-    LOG_WARNING(Service_CAM, "(STUBBED) called, port_select=%u", port_select);
+    LOG_WARNING(Service_CAM, "(STUBBED) called, port_select=%u", port_select.m_val);
 }
 
 void GetVsyncInterruptEvent(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSetUnique(port_select, 2)) {
-        int port = BitSetToIDs(port_select).back();
+    if (port_select.IsSingle()) {
+        int port = *port_select.begin();
         cmd_buff[1] = RESULT_SUCCESS.raw;
         cmd_buff[2] = IPC::CopyHandleDesc();
         cmd_buff[3] = Kernel::g_handle_table.Create(ports[port].vsync_interrupt_event).MoveFrom();
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
         cmd_buff[2] = IPC::CopyHandleDesc();
         cmd_buff[2] = 0;
@@ -356,40 +358,40 @@ void GetVsyncInterruptEvent(Service::Interface* self) {
 
     cmd_buff[0] = IPC::MakeHeader(0x5, 1, 2);
 
-    LOG_WARNING(Service_CAM, "(STUBBED) called, port_select=%u", port_select);
+    LOG_WARNING(Service_CAM, "(STUBBED) called, port_select=%u", port_select.m_val);
 }
 
 void GetBufferErrorInterruptEvent(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSetUnique(port_select, 2)) {
-        int port = BitSetToIDs(port_select).back();
+    if (port_select.IsSingle()) {
+        int port = *port_select.begin();
         cmd_buff[1] = RESULT_SUCCESS.raw;
         cmd_buff[2] = IPC::CopyHandleDesc();
         cmd_buff[3] =
             Kernel::g_handle_table.Create(ports[port].buffer_error_interrupt_event).MoveFrom();
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
         cmd_buff[2] = IPC::CopyHandleDesc();
         cmd_buff[2] = 0;
     }
 
-    LOG_WARNING(Service_CAM, "(STUBBED) called, port_select=%u", port_select);
+    LOG_WARNING(Service_CAM, "(STUBBED) called, port_select=%u", port_select.m_val);
 }
 
 void SetReceiving(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     const VAddr dest = cmd_buff[1];
-    const u32 port_select = cmd_buff[2] & 0xFF;
+    const PortSet port_select(cmd_buff[2]);
     const u32 image_size = cmd_buff[3];
     const u32 trans_unit = cmd_buff[4] & 0xFFFF;
 
-    if (VerifyBitSetUnique(port_select, 2)) {
-        int port_id = BitSetToIDs(port_select).back();
+    if (port_select.IsSingle()) {
+        int port_id = *port_select.begin();
         auto& port = ports[port_id];
         CancelReceiving(port_id);
         port.completion_event->Clear();
@@ -406,57 +408,57 @@ void SetReceiving(Service::Interface* self) {
         cmd_buff[2] = IPC::CopyHandleDesc();
         cmd_buff[3] = Kernel::g_handle_table.Create(port.completion_event).MoveFrom();
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x7, 1, 2);
 
     LOG_DEBUG(Service_CAM, "called, addr=0x%X, port_select=%u, image_size=%u, trans_unit=%u", dest,
-              port_select, image_size, trans_unit);
+              port_select.m_val, image_size, trans_unit);
 }
 
 void IsFinishedReceiving(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSetUnique(port_select, 2)) {
-        int port = BitSetToIDs(port_select).back();
+    if (port_select.IsSingle()) {
+        int port = *port_select.begin();
         cmd_buff[1] = RESULT_SUCCESS.raw;
         cmd_buff[2] = (ports[port].is_receiving || ports[port].is_pending_receiving) ? 0 : 1;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x8, 2, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select.m_val);
 }
 
 void SetTransferLines(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
     const u32 transfer_lines = cmd_buff[2] & 0xFFFF;
     const u32 width = cmd_buff[3] & 0xFFFF;
     const u32 height = cmd_buff[4] & 0xFFFF;
 
-    if (VerifyBitSet(port_select, 2)) {
-        for (int i : BitSetToIDs(port_select)) {
+    if (port_select.IsValid()) {
+        for (int i : port_select) {
             ports[i].transfer_bytes = transfer_lines * width * 2;
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x9, 1, 0);
 
     LOG_WARNING(Service_CAM, "(STUBBED) called, port_select=%u, lines=%u, width=%u, height=%u",
-                port_select, transfer_lines, width, height);
+                port_select.m_val, transfer_lines, width, height);
 }
 
 void GetMaxLines(Service::Interface* self) {
@@ -494,44 +496,44 @@ void GetMaxLines(Service::Interface* self) {
 void SetTransferBytes(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
     const u32 transfer_bytes = cmd_buff[2] & 0xFFFF;
     const u32 width = cmd_buff[3] & 0xFFFF;
     const u32 height = cmd_buff[4] & 0xFFFF;
 
-    if (VerifyBitSet(port_select, 2)) {
-        for (int i : BitSetToIDs(port_select)) {
+    if (port_select.IsValid()) {
+        for (int i : port_select) {
             ports[i].transfer_bytes = transfer_bytes;
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0xB, 1, 0);
 
     LOG_WARNING(Service_CAM, "(STUBBED)called, port_select=%u, bytes=%u, width=%u, height=%u",
-                port_select, transfer_bytes, width, height);
+                port_select.m_val, transfer_bytes, width, height);
 }
 
 void GetTransferBytes(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSetUnique(port_select, 2)) {
-        int port = BitSetToIDs(port_select).back();
+    if (port_select.IsSingle()) {
+        int port = *port_select.begin();
         cmd_buff[1] = RESULT_SUCCESS.raw;
         cmd_buff[2] = ports[port].transfer_bytes;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0xC, 2, 0);
 
-    LOG_WARNING(Service_CAM, "(STUBBED)called, port_select=%u", port_select);
+    LOG_WARNING(Service_CAM, "(STUBBED)called, port_select=%u", port_select.m_val);
 }
 
 void GetMaxBytes(Service::Interface* self) {
@@ -563,54 +565,54 @@ void GetMaxBytes(Service::Interface* self) {
 void SetTrimming(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
-    bool trim = (cmd_buff[2] & 0xFF) != 0;
+    const PortSet port_select(cmd_buff[1]);
+    const bool trim = (cmd_buff[2] & 0xFF) != 0;
 
-    if (VerifyBitSet(port_select, 2)) {
-        for (int i : BitSetToIDs(port_select)) {
+    if (port_select.IsValid()) {
+        for (int i : port_select) {
             ports[i].is_trimming = trim;
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0xE, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u, trim=%d", port_select, trim);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u, trim=%d", port_select.m_val, trim);
 }
 
 void IsTrimming(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSetUnique(port_select, 2)) {
-        int port = BitSetToIDs(port_select).back();
+    if (port_select.IsSingle()) {
+        int port = *port_select.begin();
         cmd_buff[1] = RESULT_SUCCESS.raw;
         cmd_buff[2] = ports[port].is_trimming;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0xF, 2, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select.m_val);
 }
 
 void SetTrimmingParams(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
     const u16 x0 = static_cast<u16>(cmd_buff[2] & 0xFFFF);
     const u16 y0 = static_cast<u16>(cmd_buff[3] & 0xFFFF);
     const u16 x1 = static_cast<u16>(cmd_buff[4] & 0xFFFF);
     const u16 y1 = static_cast<u16>(cmd_buff[5] & 0xFFFF);
 
-    if (VerifyBitSet(port_select, 2)) {
-        for (int i : BitSetToIDs(port_select)) {
+    if (port_select.IsValid()) {
+        for (int i : port_select) {
             ports[i].x0 = x0;
             ports[i].y0 = y0;
             ports[i].x1 = x1;
@@ -618,49 +620,49 @@ void SetTrimmingParams(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x10, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u, x0=%u, y0=%u, x1=%u, y1=%u", port_select, x0,
-              y0, x1, y1);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u, x0=%u, y0=%u, x1=%u, y1=%u", port_select.m_val,
+              x0, y0, x1, y1);
 }
 
 void GetTrimmingParams(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
 
-    if (VerifyBitSetUnique(port_select, 2)) {
-        int port = BitSetToIDs(port_select).back();
+    if (port_select.IsSingle()) {
+        int port = *port_select.begin();
         cmd_buff[1] = RESULT_SUCCESS.raw;
         cmd_buff[2] = ports[port].x0;
         cmd_buff[3] = ports[port].y0;
         cmd_buff[4] = ports[port].x1;
         cmd_buff[5] = ports[port].y1;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x11, 5, 0);
 
-    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select);
+    LOG_DEBUG(Service_CAM, "called, port_select=%u", port_select.m_val);
 }
 
 void SetTrimmingParamsCenter(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 port_select = cmd_buff[1] & 0xFF;
+    const PortSet port_select(cmd_buff[1]);
     const u16 trim_w = static_cast<u16>(cmd_buff[2] & 0xFFFF);
     const u16 trim_h = static_cast<u16>(cmd_buff[3] & 0xFFFF);
     const u16 cam_w = static_cast<u16>(cmd_buff[4] & 0xFFFF);
     const u16 cam_h = static_cast<u16>(cmd_buff[5] & 0xFFFF);
 
-    if (VerifyBitSet(port_select, 2)) {
-        for (int i : BitSetToIDs(port_select)) {
+    if (port_select.IsValid()) {
+        for (int i : port_select) {
             ports[i].x0 = (cam_w - trim_w) / 2;
             ports[i].y0 = (cam_h - trim_h) / 2;
             ports[i].x1 = ports[i].x0 + trim_w;
@@ -668,23 +670,23 @@ void SetTrimmingParamsCenter(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select);
+        LOG_ERROR(Service_CAM, "invalid port_select=%u", port_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x12, 1, 0);
 
     LOG_DEBUG(Service_CAM, "called, port_select=%u, trim_w=%u, trim_h=%u, cam_w=%u, cam_h=%u",
-              port_select, trim_w, trim_h, cam_w, cam_h);
+              port_select.m_val, trim_w, trim_h, cam_w, cam_h);
 }
 
 void Activate(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
 
-    if (camera_select < 8) {
-        if (camera_select == 0) { // deactive all
+    if (camera_select.IsValid()) {
+        if (camera_select.m_val == 0) { // deactive all
             for (int i = 0; i < 2; ++i) {
                 if (ports[i].is_busy) {
                     CancelReceiving(i);
@@ -694,40 +696,40 @@ void Activate(Service::Interface* self) {
                 ports[i].is_active = false;
             }
             cmd_buff[1] = RESULT_SUCCESS.raw;
-        } else if ((camera_select & 3) == 3) {
+        } else if (camera_select[0] && camera_select[1]) {
             LOG_ERROR(Service_CAM, "camera 0 and 1 can't be both activated");
             cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
         } else {
-            if (camera_select & 1) {
+            if (camera_select[0]) {
                 ActivatePort(0, 0);
-            } else if ((camera_select >> 1) & 1) {
+            } else if (camera_select[1]) {
                 ActivatePort(0, 1);
             }
 
-            if ((camera_select >> 2) & 1) {
+            if (camera_select[2]) {
                 ActivatePort(1, 2);
             }
             cmd_buff[1] = RESULT_SUCCESS.raw;
         }
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u", camera_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u", camera_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x13, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, camera_select=%u", camera_select);
+    LOG_DEBUG(Service_CAM, "called, camera_select=%u", camera_select.m_val);
 }
 
 void SwitchContext(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
-    const u32 context_select = cmd_buff[2] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
+    const ContextSet context_select(cmd_buff[2]);
 
-    if (VerifyBitSet(camera_select, 3) && VerifyBitSetUnique(context_select, 2)) {
-        int context = BitSetToIDs(context_select).back();
-        for (int camera : BitSetToIDs(camera_select)) {
+    if (camera_select.IsValid() && context_select.IsSingle()) {
+        int context = *context_select.begin();
+        for (int camera : camera_select) {
             cameras[camera].current_context = context;
             const auto& context_config = cameras[camera].contexts[context];
             cameras[camera].impl->SetFlip(context_config.flip);
@@ -737,27 +739,27 @@ void SwitchContext(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select,
-                  context_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select.m_val,
+                  context_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x14, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, camera_select=%u, context_select=%u", camera_select,
-              context_select);
+    LOG_DEBUG(Service_CAM, "called, camera_select=%u, context_select=%u", camera_select.m_val,
+              context_select.m_val);
 }
 
 void FlipImage(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
     auto flip = static_cast<Flip>(cmd_buff[2] & 0xFF);
-    const u32 context_select = cmd_buff[3] & 0xFF;
+    const ContextSet context_select(cmd_buff[3]);
 
-    if (VerifyBitSet(camera_select, 3) && VerifyBitSet(context_select, 2)) {
-        for (int camera : BitSetToIDs(camera_select)) {
-            for (int context : BitSetToIDs(context_select)) {
+    if (camera_select.IsValid() && context_select.IsValid()) {
+        for (int camera : camera_select) {
+            for (int context : context_select) {
                 cameras[camera].contexts[context].flip = flip;
                 if (cameras[camera].current_context == context) {
                     cameras[camera].impl->SetFlip(flip);
@@ -766,21 +768,21 @@ void FlipImage(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select,
-                  context_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select.m_val,
+                  context_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x1D, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, camera_select=%u, flip=%d, context_select=%u", camera_select,
-              static_cast<int>(flip), context_select);
+    LOG_DEBUG(Service_CAM, "called, camera_select=%u, flip=%d, context_select=%u",
+              camera_select.m_val, static_cast<int>(flip), context_select.m_val);
 }
 
 void SetDetailSize(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
     Resolution resolution;
     resolution.width = static_cast<u16>(cmd_buff[2] & 0xFFFF);
     resolution.height = static_cast<u16>(cmd_buff[3] & 0xFFFF);
@@ -788,11 +790,11 @@ void SetDetailSize(Service::Interface* self) {
     resolution.crop_y0 = static_cast<u16>(cmd_buff[5] & 0xFFFF);
     resolution.crop_x1 = static_cast<u16>(cmd_buff[6] & 0xFFFF);
     resolution.crop_y1 = static_cast<u16>(cmd_buff[7] & 0xFFFF);
-    const u32 context_select = cmd_buff[8] & 0xFF;
+    const ContextSet context_select(cmd_buff[8]);
 
-    if (VerifyBitSet(camera_select, 3) && VerifyBitSet(context_select, 2)) {
-        for (int camera : BitSetToIDs(camera_select)) {
-            for (int context : BitSetToIDs(context_select)) {
+    if (camera_select.IsValid() && context_select.IsValid()) {
+        for (int camera : camera_select) {
+            for (int context : context_select) {
                 cameras[camera].contexts[context].resolution = resolution;
                 if (cameras[camera].current_context == context) {
                     cameras[camera].impl->SetResolution(resolution);
@@ -801,8 +803,8 @@ void SetDetailSize(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select,
-                  context_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select.m_val,
+                  context_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
@@ -810,20 +812,20 @@ void SetDetailSize(Service::Interface* self) {
 
     LOG_DEBUG(Service_CAM, "called, camera_select=%u, width=%u, height=%u, crop_x0=%u, crop_y0=%u, "
                            "crop_x1=%u, crop_y1=%u, context_select=%u",
-              camera_select, resolution.width, resolution.height, resolution.crop_x0,
-              resolution.crop_y0, resolution.crop_x1, resolution.crop_y1, context_select);
+              camera_select.m_val, resolution.width, resolution.height, resolution.crop_x0,
+              resolution.crop_y0, resolution.crop_x1, resolution.crop_y1, context_select.m_val);
 }
 
 void SetSize(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
     const u32 size = cmd_buff[2] & 0xFF;
-    const u32 context_select = cmd_buff[3] & 0xFF;
+    const ContextSet context_select(cmd_buff[3]);
 
-    if (VerifyBitSet(camera_select, 3) && VerifyBitSet(context_select, 2)) {
-        for (int camera : BitSetToIDs(camera_select)) {
-            for (int context : BitSetToIDs(context_select)) {
+    if (camera_select.IsValid() && context_select.IsValid()) {
+        for (int camera : camera_select) {
+            for (int context : context_select) {
                 cameras[camera].contexts[context].resolution = PRESET_RESOLUTION[size];
                 if (cameras[camera].current_context == context) {
                     cameras[camera].impl->SetResolution(PRESET_RESOLUTION[size]);
@@ -832,50 +834,50 @@ void SetSize(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select,
-                  context_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select.m_val,
+                  context_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x1F, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, camera_select=%u, size=%u, context_select=%u", camera_select,
-              size, context_select);
+    LOG_DEBUG(Service_CAM, "called, camera_select=%u, size=%u, context_select=%u",
+              camera_select.m_val, size, context_select.m_val);
 }
 
 void SetFrameRate(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
     const auto frame_rate = static_cast<FrameRate>(cmd_buff[2] & 0xFF);
 
-    if (VerifyBitSet(camera_select, 3)) {
-        for (int camera : BitSetToIDs(camera_select)) {
+    if (camera_select.IsValid()) {
+        for (int camera : camera_select) {
             cameras[camera].frame_rate = frame_rate;
             // TODO(wwylele): consider hinting the actual camera with the expected frame rate
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u", camera_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u", camera_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x20, 1, 0);
 
-    LOG_WARNING(Service_CAM, "(STUBBED) called, camera_select=%u, frame_rate=%d", camera_select,
-                static_cast<int>(frame_rate));
+    LOG_WARNING(Service_CAM, "(STUBBED) called, camera_select=%u, frame_rate=%d",
+                camera_select.m_val, static_cast<int>(frame_rate));
 }
 
 void SetEffect(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
     const auto effect = static_cast<Effect>(cmd_buff[2] & 0xFF);
-    const u32 context_select = cmd_buff[3] & 0xFF;
+    const ContextSet context_select(cmd_buff[3]);
 
-    if (VerifyBitSet(camera_select, 3) && VerifyBitSet(context_select, 2)) {
-        for (int camera : BitSetToIDs(camera_select)) {
-            for (int context : BitSetToIDs(context_select)) {
+    if (camera_select.IsValid() && context_select.IsValid()) {
+        for (int camera : camera_select) {
+            for (int context : context_select) {
                 cameras[camera].contexts[context].effect = effect;
                 if (cameras[camera].current_context == context) {
                     cameras[camera].impl->SetEffect(effect);
@@ -884,27 +886,27 @@ void SetEffect(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select,
-                  context_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select.m_val,
+                  context_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x22, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, camera_select=%u, effect=%d, context_select=%u", camera_select,
-              static_cast<int>(effect), context_select);
+    LOG_DEBUG(Service_CAM, "called, camera_select=%u, effect=%d, context_select=%u",
+              camera_select.m_val, static_cast<int>(effect), context_select.m_val);
 }
 
 void SetOutputFormat(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    const u32 camera_select = cmd_buff[1] & 0xFF;
+    const CameraSet camera_select(cmd_buff[1]);
     const auto format = static_cast<OutputFormat>(cmd_buff[2] & 0xFF);
-    const u32 context_select = cmd_buff[3] & 0xFF;
+    const ContextSet context_select(cmd_buff[3]);
 
-    if (VerifyBitSet(camera_select, 3) && VerifyBitSet(context_select, 2)) {
-        for (int camera : BitSetToIDs(camera_select)) {
-            for (int context : BitSetToIDs(context_select)) {
+    if (camera_select.IsValid() && context_select.IsValid()) {
+        for (int camera : camera_select) {
+            for (int context : context_select) {
                 cameras[camera].contexts[context].format = format;
                 if (cameras[camera].current_context == context) {
                     cameras[camera].impl->SetFormat(format);
@@ -913,15 +915,15 @@ void SetOutputFormat(Service::Interface* self) {
         }
         cmd_buff[1] = RESULT_SUCCESS.raw;
     } else {
-        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select,
-                  context_select);
+        LOG_ERROR(Service_CAM, "invalid camera_select=%u, context_select=%u", camera_select.m_val,
+                  context_select.m_val);
         cmd_buff[1] = ERROR_INVALID_ENUM_VALUE.raw;
     }
 
     cmd_buff[0] = IPC::MakeHeader(0x25, 1, 0);
 
-    LOG_DEBUG(Service_CAM, "called, camera_select=%u, format=%d, context_select=%u", camera_select,
-              static_cast<int>(format), context_select);
+    LOG_DEBUG(Service_CAM, "called, camera_select=%u, format=%d, context_select=%u",
+              camera_select.m_val, static_cast<int>(format), context_select.m_val);
 }
 
 void SynchronizeVsyncTiming(Service::Interface* self) {
@@ -982,10 +984,13 @@ void SetPackageParameterWithContext(Service::Interface* self) {
     PackageParameterWithContext package;
     std::memcpy(&package, cmd_buff + 1, sizeof(package));
 
-    if (VerifyBitSet(package.camera_select, 3) && VerifyBitSet(package.context_select, 2)) {
-        for (int camera_id : BitSetToIDs(package.camera_select)) {
+    const CameraSet camera_select(static_cast<u32>(package.camera_select));
+    const ContextSet context_select(static_cast<u32>(package.context_select));
+
+    if (camera_select.IsValid() && context_select.IsValid()) {
+        for (int camera_id : camera_select) {
             auto& camera = cameras[camera_id];
-            for (int context_id : BitSetToIDs(package.context_select)) {
+            for (int context_id : context_select) {
                 auto& context = camera.contexts[context_id];
                 context.effect = package.effect;
                 context.flip = package.flip;
@@ -1015,10 +1020,13 @@ void SetPackageParameterWithContextDetail(Service::Interface* self) {
     PackageParameterWithContextDetail package;
     std::memcpy(&package, cmd_buff + 1, sizeof(package));
 
-    if (VerifyBitSet(package.camera_select, 3) && VerifyBitSet(package.context_select, 2)) {
-        for (int camera_id : BitSetToIDs(package.camera_select)) {
+    const CameraSet camera_select(static_cast<u32>(package.camera_select));
+    const ContextSet context_select(static_cast<u32>(package.context_select));
+
+    if (camera_select.IsValid() && context_select.IsValid()) {
+        for (int camera_id : camera_select) {
             auto& camera = cameras[camera_id];
-            for (int context_id : BitSetToIDs(package.context_select)) {
+            for (int context_id : context_select) {
                 auto& context = camera.contexts[context_id];
                 context.effect = package.effect;
                 context.flip = package.flip;
