@@ -5,27 +5,23 @@ skip_tags: true
 
 deploy:
   - provider: GitHub
-    release: nightly-$(appveyor_build_number)
+    release: Unofficial Nightly-$(appveyor_build_number)
     description: |
       If you are unsure what to download, download the latest citra-mingw-amd64 zip, extract it and run citra-qt.exe
 
-      Nightly Build number $(appveyor_build_number)
+      Nightly Build based on commit 51dd13b8a00f833b5bde88569d5a814c35d13a21
     auth_token:
-      secure: MeBSKRVxvUlkHpCbV+PhpGMmvM2Xh4gkjf4/gWvCtl1ix/VJQPbs7L/PNU7IS66C
-    artifact: mingwbuild,msvcbuild
+      secure: VlVgumLhKfubg8tTOqlfdwWROeQD6LvXrH+2am7ypWMumrdRmyZfX5w12WpmVc0z
+    artifact: MinGW, MSVC
     draft: false
     prerelease: false
     on:
-      branch: master
-      # travis only releases on tag? so have appveyor make the tag and let travis upload to it
-      appveyor_repo_tag: true
+      branch: mingw
 
 environment:
   matrix:
     - BUILD_TYPE: mingw
     - BUILD_TYPE: msvc
-  BUILD_PASSWORD:
-    secure: EXGNlWKJsCtbeImEJ5EP9qrxZ+EqUFfNy+CP61nDOMA=
 
 cache:
   - C:\ProgramData\chocolatey\bin -> appveyor.yml
@@ -117,6 +113,6 @@ after_build:
 
 artifacts:
   - path: citra-msvc-amd64-$(SHORT_COMMIT).zip
-    name: msvcbuild
+    name: MSVC
   - path: citra-mingw-amd64-$(SHORT_COMMIT).zip
-    name: mingwbuild
+    name: MinGW
