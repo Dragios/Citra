@@ -109,6 +109,12 @@ System::ResultStatus System::Load(EmuWindow* emu_window, const std::string& file
 }
 
 void System::PrepareReschedule() {
+    // TODO(bunnei): It seems that games depend on some CPU execution time elapsing during HLE
+    // routines. This simulates that time by artificially advancing the number of CPU "ticks".
+    // The value was chosen empirically, it seems to work well enough for everything tested, but
+    // is likely not ideal. We should find a more accurate way to simulate timing with HLE.
+    cpu_core->AddTicks(4000);
+
     cpu_core->PrepareReschedule();
     reschedule_pending = true;
 }
