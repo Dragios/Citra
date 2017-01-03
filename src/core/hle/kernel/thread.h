@@ -138,8 +138,10 @@ public:
      * It is used to set the output value of WaitSynchronizationN when the thread is awakened.
      * @param object Object to query the index of.
      */
-    s32 GetWaitObjectIndex(const WaitObject* object) const {
-        return wait_objects_index.at(object->GetObjectId());
+    s32 GetWaitObjectIndex(WaitObject* object) const {
+        return std::distance(wait_objects_ordered.begin(),
+                             std::find(wait_objects_ordered.begin(),
+                                       wait_objects_ordered.end(), object));
     }
 
     /**
@@ -193,8 +195,9 @@ public:
     /// This is only populated when the thread should wait for all the objects to become ready.
     std::vector<SharedPtr<WaitObject>> wait_objects;
 
-    /// Mapping of Object ids to their position in the last waitlist that this object waited on.
-    boost::container::flat_map<int, s32> wait_objects_index;
+    /// Complete list of objects that this thread is waiting on,
+    // in the same order as they were passed to WaitSynchronization.
+    std::vector<SharedPtr<WaitObject>> wait_objects_ordered;
 
     VAddr wait_address; ///< If waiting on an AddressArbiter, this is the arbitration address
 

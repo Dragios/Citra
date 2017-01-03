@@ -84,12 +84,18 @@ void Mutex::AddWaitingThread(SharedPtr<Thread> thread) {
 }
 
 void Mutex::RemoveWaitingThread(Thread* thread) {
+    auto& threads = GetWaitingThreads();
+    auto thread_iter = std::find(threads.begin(), threads.end(), thread);
+    ASSERT_MSG(thread_iter != threads.end(), "Thread is not waiting for mutex");
     WaitObject::RemoveWaitingThread(thread);
     thread->pending_mutexes.erase(this);
     UpdatePriority();
 }
 
 void Mutex::UpdatePriority() {
+    if (!holding_thread)
+        return;
+
     s32 best_priority = THREADPRIO_LOWEST;
     for (auto& waiter : GetWaitingThreads()) {
         if (waiter->current_priority < best_priority)

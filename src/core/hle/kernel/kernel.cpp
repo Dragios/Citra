@@ -42,7 +42,8 @@ SharedPtr<Thread> WaitObject::GetHighestPriorityReadyThread() {
                                            thread->status == THREADSTATUS_DEAD;
         });
         // Call RemoveWaitingThread so that child classes can override the behavior.
-        RemoveWaitingThread(to_remove->get());
+        if (to_remove != waiting_threads.end())
+            RemoveWaitingThread(to_remove->get());
     } while (to_remove != waiting_threads.end());
 
     Thread* candidate = nullptr;
@@ -70,6 +71,9 @@ SharedPtr<Thread> WaitObject::GetHighestPriorityReadyThread() {
 
 void WaitObject::WakeupAllWaitingThreads() {
     while (auto thread = GetHighestPriorityReadyThread()) {
+        for (auto& object : thread->wait_objects_ordered) {
+            object->RemoveWaitingThread(thread.get());
+        }
         if (!thread->IsSleepingOnWaitAll()) {
             Acquire(thread.get());
             // Set the output index of the WaitSynchronizationN call to the index of this object.
@@ -80,7 +84,6 @@ void WaitObject::WakeupAllWaitingThreads() {
         } else {
             for (auto& object : thread->wait_objects) {
                 object->Acquire(thread.get());
-                object->RemoveWaitingThread(thread.get());
             }
             // Note: This case doesn't update the output index of WaitSynchronizationN.
             // Clear the thread's waitlist

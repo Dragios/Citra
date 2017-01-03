@@ -277,6 +277,7 @@ static ResultCode WaitSynchronization1(Kernel::Handle handle, s64 nano_seconds) 
         if (nano_seconds == 0)
             return ERR_SYNC_TIMEOUT;
 
+        thread->wait_objects_ordered = { object };
         object->AddWaitingThread(thread);
         thread->status = THREADSTATUS_WAIT_SYNCH;
 
@@ -325,11 +326,6 @@ static ResultCode WaitSynchronizationN(s32* out, Kernel::Handle* handles, s32 ha
         objects[i] = object;
     }
 
-    // Clear the mapping of wait object indices.
-    // We don't want any lingering state in this map.
-    // It will be repopulated later in the wait_all = false case.
-    thread->wait_objects_index.clear();
-
     if (wait_all) {
         bool all_available =
             std::all_of(objects.begin(), objects.end(),
@@ -357,6 +353,8 @@ static ResultCode WaitSynchronizationN(s32* out, Kernel::Handle* handles, s32 ha
         for (auto& object : objects) {
             object->AddWaitingThread(thread);
         }
+
+        thread->wait_objects_ordered = objects;
 
         // Set the thread's waitlist to the list of objects passed to WaitSynchronizationN
         thread->wait_objects = std::move(objects);
@@ -401,13 +399,10 @@ static ResultCode WaitSynchronizationN(s32* out, Kernel::Handle* handles, s32 ha
         // Add the thread to each of the objects' waiting threads.
         for (size_t i = 0; i < objects.size(); ++i) {
             Kernel::WaitObject* object = objects[i].get();
-            // Set the index of this object in the mapping of Objects -> index for this thread.
-            thread->wait_objects_index[object->GetObjectId()] = static_cast<int>(i);
             object->AddWaitingThread(thread);
-            // TODO(Subv): Perform things like update the mutex lock owner's priority to
-            // prevent priority inversion. Currently this is done in Mutex::ShouldWait,
-            // but it should be moved to a function that is called from here.
         }
+
+        thread->wait_objects_ordered = std::move(objects);
 
         // Note: If no handles and no timeout were given, then the thread will deadlock, this is
         // consistent with hardware behavior.
