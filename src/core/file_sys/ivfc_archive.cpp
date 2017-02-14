@@ -4,8 +4,11 @@
 
 #include <cstring>
 #include <memory>
+#include <cryptopp/aes.h>
+#include <cryptopp/modes.h>
 #include "common/common_types.h"
 #include "common/logging/log.h"
+#include "common/string_util.h"
 #include "core/file_sys/ivfc_archive.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -90,7 +93,15 @@ ResultVal<size_t> IVFCFile::Read(const u64 offset, const size_t length, u8* buff
     romfs_file->Seek(data_offset + offset, SEEK_SET);
     size_t read_length = (size_t)std::min((u64)length, data_size - offset);
 
-    return MakeResult<size_t>(romfs_file->ReadBytes(buffer, read_length));
+    read_length = romfs_file->ReadBytes(buffer, read_length);
+    if (aes_context) {
+        CryptoPP::CTR_Mode<CryptoPP::AES>::Decryption dec;
+        dec.SetKeyWithIV((byte*)aes_context->key.data(), 16, (byte*)aes_context->ctr.data(), 16);
+        dec.Seek(offset + 0x1000);
+        dec.ProcessData((byte*)buffer, (byte*)buffer, read_length);
+    }
+
+    return MakeResult<size_t>(read_length);
 }
 
 ResultVal<size_t> IVFCFile::Write(const u64 offset, const size_t length, const bool flush,

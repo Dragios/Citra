@@ -5,6 +5,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <memory>
 #include <string>
@@ -32,6 +33,10 @@ enum class FileType {
     CIA,
     ELF,
     THREEDSX, // 3DSX
+};
+
+struct AesContext {
+    std::array<u8, 16> key, ctr;
 };
 
 /**
@@ -164,6 +169,10 @@ public:
     virtual ResultStatus ReadRomFS(std::shared_ptr<FileUtil::IOFile>& romfs_file, u64& offset,
                                    u64& size) {
         return ResultStatus::ErrorNotImplemented;
+    }
+
+    virtual boost::optional<AesContext> GetRomFSAesContext() {
+        return {};
     }
 
 protected:

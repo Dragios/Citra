@@ -14,6 +14,7 @@
 #include "core/file_sys/directory_backend.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/result.h"
+#include "core/loader/loader.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // FileSys namespace
@@ -52,8 +53,9 @@ protected:
 
 class IVFCFile : public FileBackend {
 public:
-    IVFCFile(std::shared_ptr<FileUtil::IOFile> file, u64 offset, u64 size)
-        : romfs_file(file), data_offset(offset), data_size(size) {}
+    IVFCFile(std::shared_ptr<FileUtil::IOFile> file, u64 offset, u64 size,
+             boost::optional<Loader::AesContext> aes_context_ = {})
+        : romfs_file(file), data_offset(offset), data_size(size), aes_context(aes_context_) {}
 
     ResultVal<size_t> Read(u64 offset, size_t length, u8* buffer) const override;
     ResultVal<size_t> Write(u64 offset, size_t length, bool flush, const u8* buffer) const override;
@@ -68,6 +70,7 @@ private:
     std::shared_ptr<FileUtil::IOFile> romfs_file;
     u64 data_offset;
     u64 data_size;
+    boost::optional<Loader::AesContext> aes_context;
 };
 
 class IVFCDirectory : public DirectoryBackend {

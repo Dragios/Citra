@@ -208,6 +208,10 @@ public:
     ResultStatus ReadRomFS(std::shared_ptr<FileUtil::IOFile>& romfs_file, u64& offset,
                            u64& size) override;
 
+    boost::optional<AesContext> GetRomFSAesContext() override {
+        return romfs_aes;
+    }
+
 private:
     /**
      * Reads an application ExeFS section of an NCCH file into AppLoader (e.g. .code, .logo, etc.)
@@ -250,6 +254,10 @@ private:
     ExHeader_Header exheader_header;
 
     std::string filepath;
+
+    boost::optional<AesContext> exefs_aes;
+    boost::optional<AesContext> exerfs_code_aes;
+    boost::optional<AesContext> romfs_aes;
 };
 
 } // namespace Loader

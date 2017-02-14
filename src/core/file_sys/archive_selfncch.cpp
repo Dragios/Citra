@@ -171,8 +171,9 @@ public:
 private:
     ResultVal<std::unique_ptr<FileBackend>> OpenRomFS() const {
         if (ncch_data.romfs_file) {
-            return MakeResult<std::unique_ptr<FileBackend>>(std::make_unique<IVFCFile>(
-                ncch_data.romfs_file, ncch_data.romfs_offset, ncch_data.romfs_size));
+            return MakeResult<std::unique_ptr<FileBackend>>(
+                std::make_unique<IVFCFile>(ncch_data.romfs_file, ncch_data.romfs_offset,
+                                           ncch_data.romfs_size, ncch_data.aes_context));
         } else {
             LOG_INFO(Service_FS, "Unable to read RomFS");
             return ERROR_ROMFS_NOT_FOUND;
@@ -223,6 +224,7 @@ ArchiveFactory_SelfNCCH::ArchiveFactory_SelfNCCH(Loader::AppLoader& app_loader) 
         app_loader.ReadRomFS(romfs_file_, ncch_data.romfs_offset, ncch_data.romfs_size)) {
 
         ncch_data.romfs_file = std::move(romfs_file_);
+        ncch_data.aes_context = app_loader.GetRomFSAesContext();
     }
 
     std::vector<u8> buffer;
