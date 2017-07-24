@@ -147,7 +147,16 @@ struct PipelineRegs {
     // Number of vertices to render
     u32 num_vertices;
 
-    INSERT_PADDING_WORDS(0x1);
+    enum class GeoStageUseGS : u32 {
+        No = 0,
+        Yes = 2,
+    };
+
+    union {
+        BitField<0, 2, GeoStageUseGS> use_gs;
+        // BitField<8, 1, u32> draw_triangle;
+        BitField<31, 1, u32> variable_primitive;
+    };
 
     // The index of the first vertex to render
     u32 vertex_offset;
@@ -202,7 +211,9 @@ struct PipelineRegs {
     /// Number of input attributes to the vertex shader minus 1
     BitField<0, 4, u32> max_input_attrib_index;
 
-    INSERT_PADDING_WORDS(2);
+    INSERT_PADDING_WORDS(1);
+
+    BitField<0, 1, u32> vsh_com_mode;
 
     enum class GPUMode : u32 {
         Drawing = 0,
@@ -211,7 +222,29 @@ struct PipelineRegs {
 
     GPUMode gpu_mode;
 
-    INSERT_PADDING_WORDS(0x18);
+    INSERT_PADDING_WORDS(0x4);
+    BitField<0, 4, u32> vs_outmap_total_minus_1_a;
+    INSERT_PADDING_WORDS(0x6);
+    BitField<0, 4, u32> vs_outmap_total_minus_1_b;
+
+    enum class GSMode : u32 {
+        Point = 0,
+        VariablePrimitive = 1,
+        FixedPrimitive = 2,
+    };
+
+    union {
+        BitField<0, 8, GSMode> mode;
+        BitField<8, 4, u32> fixed_vertex_num_minus_1;
+        BitField<12, 4, u32> stride_minus_1;
+        BitField<16, 4, u32> start_index;
+    } gs_config;
+
+    INSERT_PADDING_WORDS(0x1);
+
+    u32 variable_vertex_num_minus_1;
+
+    INSERT_PADDING_WORDS(0x9);
 
     enum class TriangleTopology : u32 {
         List = 0,
@@ -220,7 +253,10 @@ struct PipelineRegs {
         Shader = 3, // Programmable setup unit implemented in a geometry shader
     };
 
-    BitField<8, 2, TriangleTopology> triangle_topology;
+    union {
+        BitField<0, 4, u32> gs_outmap_total_minus_1;
+        BitField<8, 2, TriangleTopology> triangle_topology;
+    };
 
     u32 restart_primitive;
 
