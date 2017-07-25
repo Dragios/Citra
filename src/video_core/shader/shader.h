@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <type_traits>
 #include <nihstro/shader_bytecode.h>
 #include "common/assert.h"
@@ -59,6 +60,21 @@ ASSERT_POS(tc2, RasterizerRegs::VSOutputAttributes::TEXCOORD2_U);
 #undef ASSERT_POS
 static_assert(std::is_pod<OutputVertex>::value, "Structure is not POD");
 static_assert(sizeof(OutputVertex) == 24 * sizeof(float), "OutputVertex has invalid size");
+
+struct GSEmitter {
+    Math::Vec4<float24> buffer[3][16];
+    size_t vertex_id;
+    bool prim_emit;
+    bool winding;
+
+    using VertexHandler = std::function<void(const AttributeBuffer&)>;
+    using WindingSetter = std::function<void()>;
+    VertexHandler vertex_handler;
+    WindingSetter winding_setter;
+    u32 output_mask;
+
+    void Emit(Math::Vec4<float24> (&vertex)[16]);
+};
 
 /**
  * This structure contains the state information that needs to be unique for a shader unit. The 3DS
@@ -123,6 +139,15 @@ struct UnitState {
     void LoadInput(const ShaderRegs& config, const AttributeBuffer& input);
 
     void WriteOutput(const ShaderRegs& config, AttributeBuffer& output);
+
+    virtual GSEmitter* GetEmitter();
+};
+
+struct GSUnitState : public UnitState {
+    GSEmitter emitter;
+    GSEmitter* GetEmitter() override;
+    void SetupEmitter(const ShaderRegs& config, GSEmitter::VertexHandler vertex_handler,
+                      GSEmitter::WindingSetter winding_setter);
 };
 
 struct ShaderSetup {

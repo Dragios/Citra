@@ -82,6 +82,38 @@ void UnitState::WriteOutput(const ShaderRegs& config, AttributeBuffer& output) {
     }
 }
 
+GSEmitter* UnitState::GetEmitter() {
+    return nullptr;
+}
+
+void GSEmitter::Emit(Math::Vec4<float24> (&vertex)[16]) {
+    std::copy(std::begin(vertex), std::end(vertex), std::begin(buffer[vertex_id]));
+    if (prim_emit) {
+        ASSERT_MSG(vertex_handler, "No vertex handler set!");
+        if (winding)
+            winding_setter();
+        for (size_t i : {0, 1, 2}) {
+            AttributeBuffer output;
+            unsigned int output_i = 0;
+            for (unsigned int reg : Common::BitSet<u32>(output_mask)) {
+                output.attr[output_i++] = buffer[i][reg];
+            }
+            vertex_handler(output);
+        }
+    }
+}
+
+GSEmitter* GSUnitState::GetEmitter() {
+    return &emitter;
+}
+
+void GSUnitState::SetupEmitter(const ShaderRegs& config, GSEmitter::VertexHandler vertex_handler,
+                               GSEmitter::WindingSetter winding_setter) {
+    emitter.output_mask = config.output_mask;
+    emitter.vertex_handler = vertex_handler;
+    emitter.winding_setter = winding_setter;
+}
+
 MICROPROFILE_DEFINE(GPU_Shader, "GPU", "Shader", MP_RGB(50, 50, 240));
 
 #ifdef ARCHITECTURE_x86_64
