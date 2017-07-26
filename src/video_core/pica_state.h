@@ -14,6 +14,37 @@
 
 namespace Pica {
 
+struct State;
+
+class ShaderPipe {
+    Shader::ShaderEngine* shader_engine;
+    Shader::GSUnitState* gs_unit;
+    size_t num_vs_to_gs;
+    Math::Vec4<float24>* gs_input_buffer_begin;
+    Math::Vec4<float24>* gs_input_buffer_end;
+    Math::Vec4<float24>* gs_input_buffer_cur;
+    PipelineRegs::GSMode mode;
+    Shader::AttributeBuffer gs_input_point_mode;
+    bool need_vertex_num;
+
+    State* state;
+
+public:
+    void Reset(State* state);
+
+    void Setup(Shader::ShaderEngine* shader_engine, Shader::GSUnitState* gs_unit,
+               Shader::GSEmitter::VertexHandler vertex_handler,
+               Shader::GSEmitter::WindingSetter winding_setter);
+
+    void Reconfigure();
+
+    bool NeedAttributeNum();
+
+    void PutAttributeNum(size_t num);
+
+    void PutAttribute(const Math::Vec4<float24>* input);
+};
+
 /// Struct used to describe current Pica state
 struct State {
     void Reset();
@@ -138,6 +169,8 @@ struct State {
         // Index of the next attribute to be loaded into `input_vertex`.
         u32 current_attribute = 0;
     } immediate;
+
+    ShaderPipe shader_pipe;
 
     // This is constructed with a dummy triangle topology
     PrimitiveAssembler<Shader::OutputVertex> primitive_assembler;

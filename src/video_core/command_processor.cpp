@@ -182,6 +182,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
 
     case PICA_REG_INDEX(pipeline.vs_default_attributes_setup.index):
         g_state.immediate.current_attribute = 0;
+        g_state.shader_pipe.Reconfigure();
         default_attr_counter = 0;
         break;
 
@@ -251,20 +252,36 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                     Shader::UnitState shader_unit;
                     Shader::AttributeBuffer output{};
 
-                    shader_unit.LoadInput(regs.vs, immediate_input);
-                    shader_engine->Run(g_state.vs, shader_unit);
-                    shader_unit.WriteOutput(regs.vs, output);
-
-                    // Send to renderer
                     using Pica::Shader::OutputVertex;
                     auto AddTriangle = [](const OutputVertex& v0, const OutputVertex& v1,
                                           const OutputVertex& v2) {
                         VideoCore::g_renderer->Rasterizer()->AddTriangle(v0, v1, v2);
                     };
 
-                    g_state.primitive_assembler.SubmitVertex(
-                        Shader::OutputVertex::FromAttributeBuffer(regs.rasterizer, output),
-                        AddTriangle);
+                    auto SubmitVertex = [&](const Shader::AttributeBuffer& vertex) {
+                        g_state.primitive_assembler.SubmitVertex(
+                            Shader::OutputVertex::FromAttributeBuffer(regs.rasterizer, vertex),
+                            AddTriangle);
+                    };
+
+                    auto SetWinding = []() { g_state.primitive_assembler.SetWinding(); };
+
+                    Shader::GSUnitState gs_unit;
+                    if (regs.pipeline.use_gs == PipelineRegs::GeoStageUseGS::Yes) {
+                        g_state.shader_pipe.Setup(shader_engine, &gs_unit, SubmitVertex,
+                                                  SetWinding);
+                        ASSERT(!g_state.shader_pipe.NeedAttributeNum());
+                    }
+
+                    shader_unit.LoadInput(regs.vs, immediate_input);
+                    shader_engine->Run(g_state.vs, shader_unit);
+                    shader_unit.WriteOutput(regs.vs, output);
+
+                    if (regs.pipeline.use_gs == PipelineRegs::GeoStageUseGS::Yes) {
+                        g_state.shader_pipe.PutAttribute(output.attr);
+                    } else {
+                        SubmitVertex(output);
+                    }
                 }
             }
         }
@@ -342,16 +359,37 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
         // The size has been tuned for optimal balance between hit-rate and the cost of lookup
         const size_t VERTEX_CACHE_SIZE = 32;
         std::array<u16, VERTEX_CACHE_SIZE> vertex_cache_ids;
-        std::array<Shader::OutputVertex, VERTEX_CACHE_SIZE> vertex_cache;
-        Shader::OutputVertex output_vertex;
+        std::array<Shader::AttributeBuffer, VERTEX_CACHE_SIZE> vertex_cache;
+        Shader::AttributeBuffer vs_output;
 
         unsigned int vertex_cache_pos = 0;
         vertex_cache_ids.fill(-1);
 
+        using Pica::Shader::OutputVertex;
+        auto AddTriangle = [](const OutputVertex& v0, const OutputVertex& v1,
+                              const OutputVertex& v2) {
+            VideoCore::g_renderer->Rasterizer()->AddTriangle(v0, v1, v2);
+        };
+
+        auto SubmitVertex = [&](const Shader::AttributeBuffer& vertex) {
+            primitive_assembler.SubmitVertex(
+                Shader::OutputVertex::FromAttributeBuffer(regs.rasterizer, vertex), AddTriangle);
+        };
+
+        auto SetWinding = [&]() { primitive_assembler.SetWinding(); };
+
         auto* shader_engine = Shader::GetEngine();
         Shader::UnitState shader_unit;
+        Shader::GSUnitState gs_unit;
 
         shader_engine->SetupBatch(g_state.vs, regs.vs.main_offset);
+
+        if (regs.pipeline.use_gs == PipelineRegs::GeoStageUseGS::Yes) {
+            g_state.shader_pipe.Setup(shader_engine, &gs_unit, SubmitVertex, SetWinding);
+            g_state.shader_pipe.Reconfigure();
+            if (g_state.shader_pipe.NeedAttributeNum())
+                ASSERT(is_indexed);
+        }
 
         for (unsigned int index = 0; index < regs.pipeline.num_vertices; ++index) {
             // Indexed rendering doesn't use the start offset
@@ -366,6 +404,11 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
             bool vertex_cache_hit = false;
 
             if (is_indexed) {
+                if (g_state.shader_pipe.NeedAttributeNum()) {
+                    g_state.shader_pipe.PutAttributeNum(vertex);
+                    continue;
+                }
+
                 if (g_debug_context && Pica::g_debug_context->recorder) {
                     int size = index_u16 ? 2 : 1;
                     memory_accesses.AddAccess(base_address + index_info.offset + size * index,
@@ -374,7 +417,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
 
                 for (unsigned int i = 0; i < VERTEX_CACHE_SIZE; ++i) {
                     if (vertex == vertex_cache_ids[i]) {
-                        output_vertex = vertex_cache[i];
+                        vs_output = vertex_cache[i];
                         vertex_cache_hit = true;
                         break;
                     }
@@ -383,7 +426,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
 
             if (!vertex_cache_hit) {
                 // Initialize data for the current vertex
-                Shader::AttributeBuffer input, output{};
+                Shader::AttributeBuffer input;
                 loader.LoadVertex(base_address, index, vertex, input, memory_accesses);
 
                 // Send to vertex shader
@@ -392,26 +435,20 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                                              (void*)&input);
                 shader_unit.LoadInput(regs.vs, input);
                 shader_engine->Run(g_state.vs, shader_unit);
-                shader_unit.WriteOutput(regs.vs, output);
-
-                // Retrieve vertex from register data
-                output_vertex = Shader::OutputVertex::FromAttributeBuffer(regs.rasterizer, output);
+                shader_unit.WriteOutput(regs.vs, vs_output);
 
                 if (is_indexed) {
-                    vertex_cache[vertex_cache_pos] = output_vertex;
+                    vertex_cache[vertex_cache_pos] = vs_output;
                     vertex_cache_ids[vertex_cache_pos] = vertex;
                     vertex_cache_pos = (vertex_cache_pos + 1) % VERTEX_CACHE_SIZE;
                 }
             }
 
-            // Send to renderer
-            using Pica::Shader::OutputVertex;
-            auto AddTriangle = [](const OutputVertex& v0, const OutputVertex& v1,
-                                  const OutputVertex& v2) {
-                VideoCore::g_renderer->Rasterizer()->AddTriangle(v0, v1, v2);
-            };
-
-            primitive_assembler.SubmitVertex(output_vertex, AddTriangle);
+            if (regs.pipeline.use_gs == PipelineRegs::GeoStageUseGS::Yes) {
+                g_state.shader_pipe.PutAttribute(vs_output.attr);
+            } else {
+                SubmitVertex(vs_output);
+            }
         }
 
         for (auto& range : memory_accesses.ranges) {
